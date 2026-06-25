@@ -7,7 +7,7 @@
 
 ## 1. 개발 범위
 
-### 1-1. 핵심 구현 대상
+### 핵심 구현 대상
 
 본 명세서는 1:1 대전 카드게임의 핵심 룰 엔진 구현을 대상으로 한다.
 
@@ -24,7 +24,7 @@
 - 국민적 피로감 처리
 - 승패 및 동시 탄핵 판정
 
-### 1-2. 비범위
+### 비범위
 
 다음 항목은 별도 명세 또는 콘텐츠 데이터 정의가 필요하다.
 
@@ -34,6 +34,7 @@
 - 매칭, 랭킹, 계정, 결제, 저장소 설계
 - 애니메이션, 사운드, UI 연출 세부 구현
 - AI 상대 또는 튜토리얼 시나리오
+- Steam 상점 페이지, 빌드 배포, 업적/클라우드 저장소의 상세 운영 정책
 
 ---
 
@@ -57,96 +58,184 @@
 
 ---
 
-## 3. 게임 상태 모델
+## 3. Steam 출시 기준 기술 스택
 
-### 3-1. GameState
+### 기본 개발 언어 및 엔진
 
-```ts
-type GamePhase =
-  | 'INITIALIZING'
-  | 'ROUND_START'
-  | 'PREPARATION'
-  | 'COMBAT'
-  | 'ROUND_END'
-  | 'GAME_OVER';
+Steam PC 출시를 1차 목표로 하므로 기본 클라이언트 개발은 **Unity + C#** 기준으로 진행한다.
 
-interface GameState {
-  gameId: string;
-  version: '0.4';
-  round: number;
-  phase: GamePhase;
-  firstPlayerId: string;
-  activeCombatPlayerId: string | null;
-  players: [PlayerState, PlayerState];
-  eventLog: GameEventLog[];
-  pendingNewsEvent: NewsEventState | null;
-  winnerPlayerId: string | null;
-  defeatReason: DefeatReason | null;
+| 영역 | 권장 기술 | 사유 |
+| --- | --- | --- |
+| 클라이언트 | Unity 6 LTS 또는 Unity 2022 LTS, C# | Steam PC 빌드, UI/애니메이션, 크로스 플랫폼 확장에 유리 |
+| 룰 엔진 | 순수 C# 클래스 라이브러리 | Unity 클라이언트, 서버, 시뮬레이터, QA 자동 테스트에서 동일 로직 재사용 |
+| 데이터 | ScriptableObject + JSON/CSV 내보내기 | 디자이너 편집성과 버전 관리 편의성 균형 |
+| Steam 연동 | Steamworks.NET 또는 Facepunch.Steamworks | 업적, 클라우드 저장, 친구 초대, 빌드 배포 연동 |
+| 자동 테스트 | NUnit / Unity Test Framework | 룰 엔진 단위 테스트와 플레이모드 테스트 지원 |
+| 서버가 필요한 경우 | ASP.NET Core C# | 클라이언트/룰 엔진과 언어를 통일해 판정 불일치 감소 |
+
+### 구현 원칙
+
+- 게임 규칙 판정은 Unity 씬/프리팹에 직접 묶지 않고 `RulesEngine` 계층의 순수 C# 코드로 구현한다.
+- UI는 룰 엔진 상태를 표시하고 액션 요청을 전달하는 얇은 계층으로 유지한다.
+- 카드/이벤트/정당 데이터는 코드에 하드코딩하지 않고 데이터 에셋으로 분리한다.
+- Steam 전용 기능은 어댑터 계층으로 감싸서 오프라인 개발 빌드와 테스트에서 대체 가능하게 한다.
+- 모든 랜덤 판정은 시드 기반으로 기록해 리플레이와 QA 재현이 가능해야 한다.
+
+---
+
+## 4. 작업 전후 문서 정리 지침
+
+모든 기능 개발, 밸런스 수정, QA 수정은 코드 변경만으로 완료하지 않고 문서 정리를 함께 수행한다.
+
+### 작업 전 문서 정리
+
+작업 시작 전 담당자는 다음을 확인하고 필요한 경우 먼저 문서를 갱신한다.
+
+1. 관련 규칙이 `docs/rules-v0.4.md`에 존재하는지 확인한다.
+2. 구현 기준이 본 개발 명세서에 존재하는지 확인한다.
+3. 카드/이벤트/수치 작업이면 별도 데이터 명세 또는 밸런스 표가 있는지 확인한다.
+4. 모호한 규칙은 임의 구현하지 않고 “모호한 사항 및 추천안”에 추가한다.
+5. 작업 범위, 결정 사항, 미결 사항을 이슈 또는 작업 문서에 남긴다.
+
+### 작업 후 문서 정리
+
+작업 완료 후 담당자는 다음을 수행한다.
+
+1. 실제 구현이 문서와 달라진 경우 문서를 먼저 수정한다.
+2. 새로 확정된 룰, 수치, 예외 처리를 관련 문서에 반영한다.
+3. QA 중 발견된 재현 조건과 기대 결과를 검증 시나리오에 추가한다.
+4. PR 본문에 변경된 문서 목록과 문서-구현 일치 여부를 기록한다.
+5. 문서 변경이 필요 없었다면 PR 본문에 그 사유를 명시한다.
+
+### 문서 우선순위
+
+문서 간 충돌이 있을 경우 우선순위는 다음과 같다.
+
+1. 최신 의사결정 기록 또는 승인된 이슈
+2. 개발 명세서
+3. 규칙 문서
+4. 카드/이벤트 개별 데이터 문서
+5. README 및 기타 안내 문서
+
+---
+
+## 5. 게임 상태 모델
+
+### GameState
+
+```csharp
+public enum GamePhase
+{
+    Initializing,
+    RoundStart,
+    Preparation,
+    Combat,
+    RoundEnd,
+    GameOver
+}
+
+public sealed class GameState
+{
+    public string GameId { get; init; } = string.Empty;
+    public string Version { get; init; } = "0.4";
+    public int Round { get; set; }
+    public GamePhase Phase { get; set; }
+    public string FirstPlayerId { get; init; } = string.Empty;
+    public string? ActiveCombatPlayerId { get; set; }
+    public PlayerState[] Players { get; init; } = new PlayerState[2];
+    public List<GameEventLog> EventLog { get; } = new();
+    public NewsEventState? PendingNewsEvent { get; set; }
+    public string? WinnerPlayerId { get; set; }
+    public DefeatReason? DefeatReason { get; set; }
 }
 ```
 
-### 3-2. PlayerState
+### PlayerState
 
-```ts
-interface PlayerState {
-  playerId: string;
-  seat: 'FIRST' | 'SECOND';
-  party: PartyId;
-  approval: number;
-  funds: number;
-  rankLevel: 1 | 2 | 3 | 4 | 5 | 6 | 7;
-  hand: CardInstance[];
-  shop: ShopState;
-  mainField: Array<CardInstance | null>; // length 5
-  outsideField: Array<CardInstance | null>; // length 2
-  consecutiveAutoPassCount: number;
-  forfeitedCombatActions: boolean;
+```csharp
+public enum PlayerSeat
+{
+    First,
+    Second
+}
+
+public sealed class PlayerState
+{
+    public string PlayerId { get; init; } = string.Empty;
+    public PlayerSeat Seat { get; init; }
+    public PartyId Party { get; set; }
+    public int Approval { get; set; }
+    public int Funds { get; set; }
+    public int RankLevel { get; set; }
+    public List<CardInstance> Hand { get; } = new();
+    public ShopState Shop { get; set; } = new();
+    public CardInstance?[] MainField { get; } = new CardInstance?[5];
+    public CardInstance?[] OutsideField { get; } = new CardInstance?[2];
+    public int ConsecutiveAutoPassCount { get; set; }
+    public bool ForfeitedCombatActions { get; set; }
 }
 ```
 
-### 3-3. CardInstance
+### CardInstance
 
-```ts
-type CardZone = 'DECK_POOL' | 'SHOP' | 'HAND' | 'MAIN_FIELD' | 'OUTSIDE_FIELD' | 'DISCARDED' | 'DESTROYED';
+```csharp
+public enum CardZone
+{
+    DeckPool,
+    Shop,
+    Hand,
+    MainField,
+    OutsideField,
+    Discarded,
+    Destroyed
+}
 
-type CardType = 'POLITICIAN' | 'OUTSIDE' | 'EVENT_SPECIAL';
+public enum CardType
+{
+    Politician,
+    Outside,
+    EventSpecial
+}
 
-type Tag =
-  | '장외'
-  | '직격'
-  | '저격'
-  | '여론전'
-  | '장외 선동'
-  | '속공'
-  | '도발'
-  | '남성';
+public enum CardTag
+{
+    Outside,
+    DirectAttack,
+    Sniper,
+    PublicOpinionWar,
+    OutsideAgitation,
+    Rush,
+    Taunt,
+    Male
+}
 
-interface CardInstance {
-  instanceId: string;
-  cardId: string;
-  ownerPlayerId: string;
-  type: CardType;
-  zone: CardZone;
-  cost: number;
-  hp: number | null;
-  maxHp: number | null;
-  outsideDurability: number | null;
-  attack: number;
-  tags: Tag[];
-  statuses: StatusState[];
-  activeSkill: ActiveSkillState | null;
-  deployedRound: number | null;
-  actedThisRound: boolean;
-  basicAttackUsedThisRound: boolean;
-  activeSkillUsedThisRound: boolean;
+public sealed class CardInstance
+{
+    public string InstanceId { get; init; } = string.Empty;
+    public string CardId { get; init; } = string.Empty;
+    public string OwnerPlayerId { get; init; } = string.Empty;
+    public CardType Type { get; init; }
+    public CardZone Zone { get; set; }
+    public int Cost { get; init; }
+    public int? Hp { get; set; }
+    public int? MaxHp { get; init; }
+    public int? OutsideDurability { get; set; }
+    public int Attack { get; init; }
+    public HashSet<CardTag> Tags { get; } = new();
+    public List<StatusState> Statuses { get; } = new();
+    public ActiveSkillState? ActiveSkill { get; set; }
+    public int? DeployedRound { get; set; }
+    public bool ActedThisRound { get; set; }
+    public bool BasicAttackUsedThisRound { get; set; }
+    public bool ActiveSkillUsedThisRound { get; set; }
 }
 ```
 
 ---
 
-## 4. 게임 초기화
+## 6. 게임 초기화
 
-### 4-1. 초기값
+### 초기값
 
 | 항목 | 선공 | 후공 |
 | --- | ---: | ---: |
@@ -157,7 +246,7 @@ interface CardInstance {
 | 장외 투쟁 슬롯 | 빈 2칸 | 빈 2칸 |
 | 손패 | 빈 손패 | 빈 손패 |
 
-### 4-2. 초기화 절차
+### 초기화 절차
 
 1. 양측 플레이어를 생성한다.
 2. 선공/후공을 결정한다.
@@ -168,9 +257,9 @@ interface CardInstance {
 
 ---
 
-## 5. 라운드 진행 명세
+## 7. 라운드 진행 명세
 
-### 5-1. 라운드 시작 처리 순서
+### 라운드 시작 처리 순서
 
 라운드 시작 시 다음 순서를 고정한다.
 
@@ -183,17 +272,17 @@ interface CardInstance {
 7. 승패 검사
 8. 준비 페이즈 진입
 
-### 5-2. 정치 자금 회복
+### 정치 자금 회복
 
 - 1라운드에는 회복하지 않는다.
 - 2라운드부터 매 라운드 시작 시 양측 정치 자금을 +10 한다.
 - 정치 자금은 100을 초과할 수 없다.
 
-```ts
-player.funds = Math.min(100, player.funds + 10);
+```csharp
+player.Funds = Math.Min(100, player.Funds + 10);
 ```
 
-### 5-3. 라운드 종료 처리
+### 라운드 종료 처리
 
 1. 라운드 중 사용한 임시 플래그를 정리한다.
 2. `actedThisRound`, `basicAttackUsedThisRound`, `activeSkillUsedThisRound`를 초기화한다.
@@ -203,16 +292,16 @@ player.funds = Math.min(100, player.funds + 10);
 
 ---
 
-## 6. 준비 페이즈 명세
+## 8. 준비 페이즈 명세
 
-### 6-1. 기본 규칙
+### 기본 규칙
 
 - 제한 시간은 60초다.
 - 양측 플레이어가 동시에 행동할 수 있다.
 - 준비 페이즈 종료 후에는 다음 준비 페이즈까지 구매, 배치, 판매, 직급 상승, 필드 재정비를 할 수 없다.
 - 상대가 구매하거나 배치하는 카드는 실시간 공개 정보로 처리한다.
 
-### 6-2. 허용 액션
+### 허용 액션
 
 | 액션 | 조건 | 결과 |
 | --- | --- | --- |
@@ -224,7 +313,7 @@ player.funds = Math.min(100, player.funds + 10);
 | 장외 카드 배치 | 장외 슬롯 여유 | 손패에서 장외 슬롯으로 이동 |
 | 필드 재정비 | 소유 필드 내 이동 가능 | 카드 위치 변경 |
 
-### 6-3. 동시 입력 처리
+### 동시 입력 처리
 
 서버 권위형 구현을 권장한다.
 
@@ -235,16 +324,16 @@ player.funds = Math.min(100, player.funds + 10);
 
 ---
 
-## 7. 상점 및 손패 명세
+## 9. 상점 및 손패 명세
 
-### 7-1. 손패
+### 손패
 
 - 최대 10장이다.
 - 구매한 카드는 즉시 필드가 아니라 손패로 들어간다.
 - 손패에서 필드 배치 시 추가 비용은 없다.
 - 손패가 가득 찬 상태에서는 상점 구매가 불가능하다.
 
-### 7-2. 언론 통제
+### 언론 통제
 
 카드 효과 또는 긴급 속보 이벤트로 카드를 강제 획득할 때 손패가 가득 차 있으면 다음과 같이 처리한다.
 
@@ -252,7 +341,7 @@ player.funds = Math.min(100, player.funds + 10);
 2. 카드는 `DESTROYED` 또는 별도 `SUPPRESSED_BY_MEDIA` 로그로 기록한다.
 3. 정치 자금은 환급하지 않는다.
 
-### 7-3. 상점
+### 상점
 
 - 각 플레이어는 독립 상점을 가진다.
 - 상점 기물 풀은 플레이어 간 공유하지 않는다.
@@ -260,29 +349,31 @@ player.funds = Math.min(100, player.funds + 10);
 - 상점 갱신은 자금이 허용하는 한 반복 가능하다.
 - 카드 출현 등급/코스트는 플레이어 직급에 따른 확률표로 결정한다.
 
-### 7-4. 특수 등장 제한
+### 특수 등장 제한
 
 카드 데이터에는 다음 제한 필드를 둘 수 있어야 한다.
 
-```ts
-type AppearanceLimit =
-  | 'NONE'
-  | 'ONCE_PER_GAME'
-  | 'ONCE_PER_PLAYER';
+```csharp
+public enum AppearanceLimit
+{
+    None,
+    OncePerGame,
+    OncePerPlayer
+}
 ```
 
 ---
 
-## 8. 배치 및 판매/해고 명세
+## 10. 배치 및 판매/해고 명세
 
-### 8-1. 배치
+### 배치
 
 - `POLITICIAN` 카드는 메인 필드에만 배치한다.
 - `OUTSIDE` 또는 `장외` 태그 카드는 장외 투쟁 슬롯에만 배치한다.
 - 대상 슬롯이 가득 차 있으면 배치 요청을 거부한다.
 - 배치 시 `deployedRound = currentRound`로 기록한다.
 
-### 8-2. 배치 라운드 행동 가능 여부
+### 배치 라운드 행동 가능 여부
 
 | 행동 | 기본 규칙 | 예외 |
 | --- | --- | --- |
@@ -291,7 +382,7 @@ type AppearanceLimit =
 
 1라운드에는 `속공` 태그가 발동하지 않는다.
 
-### 8-3. 판매/해고 환급
+### 판매/해고 환급
 
 | 카드 종류 | 환급률 |
 | --- | ---: |
@@ -305,16 +396,16 @@ type AppearanceLimit =
 
 ---
 
-## 9. 전투 페이즈 명세
+## 11. 전투 페이즈 명세
 
-### 9-1. 선행 플레이어 결정
+### 선행 플레이어 결정
 
 | 라운드 | 선행 플레이어 |
 | --- | --- |
 | 홀수 라운드 | 선공 플레이어 |
 | 짝수 라운드 | 후공 플레이어 |
 
-### 9-2. 전투 진행
+### 전투 진행
 
 1. `phase = COMBAT` 설정
 2. 라운드 번호에 따라 선행/후행 플레이어를 결정한다.
@@ -324,14 +415,14 @@ type AppearanceLimit =
 6. 행동 후 상대에게 행동권을 넘긴다.
 7. 양측 모두 행동 가능한 카드가 없거나 패스하면 전투를 종료한다.
 
-### 9-3. 행동 제한 시간
+### 행동 제한 시간
 
 - 각 행동 제한 시간은 15초다.
 - 제한 시간 내 입력이 없으면 자동 패스한다.
 - 2회 연속 자동 패스하면 해당 전투 페이즈의 남은 행동권을 포기한다.
 - 수동 패스는 연속 자동 패스 카운트에 포함하지 않는다.
 
-### 9-4. 카드 행동 가능 조건
+### 카드 행동 가능 조건
 
 카드는 다음 조건을 모두 만족해야 행동 가능하다.
 
@@ -344,9 +435,9 @@ type AppearanceLimit =
 
 ---
 
-## 10. 기본 공격 명세
+## 12. 기본 공격 명세
 
-### 10-1. 대상 우선순위
+### 대상 우선순위
 
 기본 공격은 다음 우선순위를 따른다.
 
@@ -357,7 +448,7 @@ type AppearanceLimit =
 
 단, 4번 예외도 도발보다 우선할 수 없다.
 
-### 10-2. 피해 처리
+### 피해 처리
 
 피해 처리는 다음 순서로 계산한다.
 
@@ -373,16 +464,16 @@ type AppearanceLimit =
 
 ---
 
-## 11. 액티브 스킬 및 쿨타임 명세
+## 13. 액티브 스킬 및 쿨타임 명세
 
-### 11-1. 액티브 스킬 사용
+### 액티브 스킬 사용
 
 - 한 카드는 한 라운드에 기본 공격 또는 액티브 스킬 중 하나만 사용할 수 있다.
 - 액티브 스킬은 카드 데이터에 정의된 대상 타입에만 사용할 수 있다.
 - 스킬 쿨타임이 남아 있으면 사용할 수 없다.
 - 사용 후 `actedThisRound = true`, `activeSkillUsedThisRound = true`로 설정한다.
 
-### 11-2. 기본 쿨타임 기준
+### 기본 쿨타임 기준
 
 | 스킬 종류 | 기본 쿨타임 |
 | --- | ---: |
@@ -391,23 +482,24 @@ type AppearanceLimit =
 | 강한 단일 피해 / 광역 효과 | 3라운드 |
 | 즉사, 대량 지지율 감소, 전체 무력화 | 4라운드 또는 1회용 |
 
-### 11-3. 쿨타임 데이터
+### 쿨타임 데이터
 
-```ts
-interface ActiveSkillState {
-  skillId: string;
-  baseCooldownRounds: number;
-  remainingCooldownRounds: number;
-  isOneTimeUse: boolean;
-  usedPermanently: boolean;
+```csharp
+public sealed class ActiveSkillState
+{
+    public string SkillId { get; init; } = string.Empty;
+    public int BaseCooldownRounds { get; init; }
+    public int RemainingCooldownRounds { get; set; }
+    public bool IsOneTimeUse { get; init; }
+    public bool UsedPermanently { get; set; }
 }
 ```
 
 ---
 
-## 12. 상태이상 및 키워드 명세
+## 14. 상태이상 및 키워드 명세
 
-### 12-1. 상태이상
+### 상태이상
 
 | 상태 | 효과 | 지속/해제 |
 | --- | --- | --- |
@@ -416,7 +508,7 @@ interface ActiveSkillState {
 | 논란 | 다음에 받는 피해 +10 | 1회 피해 후 제거, 중첩 불가 |
 | 의혹 | 다음 라운드 시작 시 HP 또는 지지율에 10 피해 | 피해 적용 후 제거 권장 |
 
-### 12-2. 키워드
+### 키워드
 
 | 키워드 | 구현 효과 |
 | --- | --- |
@@ -427,9 +519,9 @@ interface ActiveSkillState {
 
 ---
 
-## 13. 장외 투쟁 명세
+## 15. 장외 투쟁 명세
 
-### 13-1. 기본 규칙
+### 기본 규칙
 
 - 장외 투쟁 슬롯은 플레이어당 2칸이다.
 - 장외 카드는 HP 대신 장외 내구도를 가진다.
@@ -437,7 +529,7 @@ interface ActiveSkillState {
 - 장외 카드는 일반 공격의 대상이 되지 않는다.
 - 장외 카드는 지속 패시브, 버프, 디버프, 자금 방해 효과 등을 제공한다.
 
-### 13-2. 내구도 감소
+### 내구도 감소
 
 장외 내구도는 다음 유형의 효과로 감소할 수 있다.
 
@@ -452,9 +544,9 @@ interface ActiveSkillState {
 
 ---
 
-## 14. 직급 명세
+## 16. 직급 명세
 
-### 14-1. 직급 단계
+### 직급 단계
 
 | 레벨 | 직급 | 상점 방향성 |
 | --- | --- | --- |
@@ -466,18 +558,19 @@ interface ActiveSkillState {
 | Lv.6 | 당대표 | 에이스 카드 낮은 확률 등장 |
 | Lv.7 | 대통령 | 50코스트급 카드 등장 가능 |
 
-### 14-2. 필요 추가 데이터
+### 필요 추가 데이터
 
 규칙 v0.4에는 직급 상승 비용이 정의되어 있지 않으므로, 구현 전 `rankUpgradeCostTable`을 확정해야 한다.
 
-```ts
-const rankUpgradeCostTable = {
-  1: 10,
-  2: 20,
-  3: 30,
-  4: 40,
-  5: 50,
-  6: 60,
+```csharp
+public static readonly IReadOnlyDictionary<int, int> RankUpgradeCostTable = new Dictionary<int, int>
+{
+    [1] = 10,
+    [2] = 20,
+    [3] = 30,
+    [4] = 40,
+    [5] = 50,
+    [6] = 60
 };
 ```
 
@@ -485,40 +578,40 @@ const rankUpgradeCostTable = {
 
 ---
 
-## 15. 정당 패시브 명세
+## 17. 정당 패시브 명세
 
-### 15-1. 민주방탄연합 — 사법부 장악
+### 민주방탄연합 — 사법부 장악
 
 - 받는 모든 일반 피해를 20% 감소한다.
 - 고정 피해, 긴급 속보 피해, 국민적 피로감, 탄핵 효과에는 적용하지 않는다.
 
-### 15-2. 민주의힘 — 공권력 투사
+### 민주의힘 — 공권력 투사
 
 - 공격 시 상대의 피해 감소 효과를 절반만 적용한다.
 - 액티브 스킬 피해의 25%는 고정 피해로 적용한다.
 
-### 15-3. 돌풍혁신당 — 내부총질
+### 돌풍혁신당 — 내부총질
 
 - 내 카드가 피해를 받을 때 공격자에게 받은 피해의 10%를 반사한다.
 - 내 카드가 액티브 스킬을 사용할 때마다 내 지지율이 2% 감소한다.
 - 내 모든 공격 피해가 15% 증가한다.
 
-### 15-4. 려시의당 — 성역화
+### 려시의당 — 성역화
 
 - 내 카드나 본체가 피해를 받을 때 받은 피해의 10%를 상대 진영의 `남성` 태그 정치인들에게 분산 반사한다.
 - 상대 필드에 `남성` 태그 정치인이 없으면 상대 지지율에 3 고정 피해를 준다.
 
 ---
 
-## 16. 긴급 속보 이벤트 명세
+## 18. 긴급 속보 이벤트 명세
 
-### 16-1. 발동 시점
+### 발동 시점
 
 - 5, 10, 15, 20라운드 등 5의 배수 라운드 시작 처리 중 발동한다.
 - 양측 플레이어에게 동시에 적용한다.
 - 이벤트 적용 후 즉시 승패 검사를 수행한다.
 
-### 16-2. 권장 상한
+### 권장 상한
 
 | 효과 종류 | 최대 권장 수치 |
 | --- | --- |
@@ -529,28 +622,41 @@ const rankUpgradeCostTable = {
 | 무력화 | 무작위 1~2장, 1라운드 |
 | 전체 효과 | 1라운드 한정 |
 
-### 16-3. 이벤트 데이터
+### 이벤트 데이터
 
-```ts
-interface NewsEventDefinition {
-  eventId: string;
-  name: string;
-  triggerRounds: 'EVERY_5_ROUNDS';
-  effects: EffectDefinition[];
-  maxImpactCategory: 'LOW' | 'MEDIUM' | 'HIGH';
+```csharp
+public enum NewsEventTrigger
+{
+    EveryFiveRounds
+}
+
+public enum ImpactCategory
+{
+    Low,
+    Medium,
+    High
+}
+
+public sealed class NewsEventDefinition
+{
+    public string EventId { get; init; } = string.Empty;
+    public string Name { get; init; } = string.Empty;
+    public NewsEventTrigger TriggerRounds { get; init; } = NewsEventTrigger.EveryFiveRounds;
+    public List<EffectDefinition> Effects { get; init; } = new();
+    public ImpactCategory MaxImpactCategory { get; init; }
 }
 ```
 
 ---
 
-## 17. 국민적 피로감 명세
+## 19. 국민적 피로감 명세
 
-### 17-1. 발동 조건
+### 발동 조건
 
 - 16라운드부터 매 라운드 시작 시 적용한다.
 - 피해 감소, 방어막, 정당 패시브, 회복 효과, 장외 패시브, 도발로 막을 수 없다.
 
-### 17-2. 피해량
+### 피해량
 
 | 라운드 | 지지율 감소 |
 | --- | ---: |
@@ -560,13 +666,13 @@ interface NewsEventDefinition {
 
 ---
 
-## 18. 승패 판정 명세
+## 20. 승패 판정 명세
 
-### 18-1. 기본 패배
+### 기본 패배
 
 플레이어의 지지율이 0 이하가 되면 해당 플레이어는 탄핵되어 패배한다.
 
-### 18-2. 동시 탄핵
+### 동시 탄핵
 
 양측 지지율이 동시에 0 이하가 되면 다음 순서로 승자를 정한다.
 
@@ -576,7 +682,7 @@ interface NewsEventDefinition {
 
 ---
 
-## 19. 카드 밸런스 데이터 기준
+## 21. 카드 밸런스 데이터 기준
 
 | 코스트 | 권장 HP | 권장 공격력 | 특징 |
 | --- | --- | --- | --- |
@@ -590,23 +696,23 @@ interface NewsEventDefinition {
 
 ---
 
-## 20. 필수 검증 시나리오
+## 22. 필수 검증 시나리오
 
-### 20-1. 초기화
+### 초기화
 
 - 선공 정치 자금이 10인지 검증한다.
 - 후공 정치 자금이 15인지 검증한다.
 - 양측 지지율이 100인지 검증한다.
 - 1라운드 시작 시 정치 자금 회복이 발생하지 않는지 검증한다.
 
-### 20-2. 준비 페이즈
+### 준비 페이즈
 
 - 손패 10장 상태에서 상점 구매가 거부되는지 검증한다.
 - 상점 갱신 시 정치 자금 2가 차감되는지 검증한다.
 - 필드가 가득 찬 상태에서 배치가 거부되는지 검증한다.
 - 카드 판매 시 환급률과 소수점 버림이 적용되는지 검증한다.
 
-### 20-3. 전투 페이즈
+### 전투 페이즈
 
 - 홀수 라운드에는 선공이 먼저 행동하는지 검증한다.
 - 짝수 라운드에는 후공이 먼저 행동하는지 검증한다.
@@ -615,20 +721,20 @@ interface NewsEventDefinition {
 - 1라운드에는 속공이 비활성화되는지 검증한다.
 - 한 카드가 한 라운드에 기본 공격과 액티브 스킬을 모두 사용할 수 없는지 검증한다.
 
-### 20-4. 대상 지정
+### 대상 지정
 
 - 도발 카드가 있으면 다른 대상 공격이 거부되는지 검증한다.
 - 상대 필드에 카드가 있으면 지지율 직접 공격이 거부되는지 검증한다.
 - 직격 계열 태그가 있으면 지지율 직접 공격이 가능한지 검증한다.
 - 직격 계열 태그가 있어도 도발을 무시하지 못하는지 검증한다.
 
-### 20-5. 라운드 이벤트
+### 라운드 이벤트
 
 - 5라운드 시작에 긴급 속보가 발동하는지 검증한다.
 - 16라운드 시작에 국민적 피로감이 적용되는지 검증한다.
 - 국민적 피로감 피해가 정당 패시브로 감소하지 않는지 검증한다.
 
-### 20-6. 승패
+### 승패
 
 - 지지율 0 이하인 플레이어가 패배하는지 검증한다.
 - 동시 탄핵 시 더 높은 지지율의 플레이어가 승리하는지 검증한다.
@@ -636,93 +742,93 @@ interface NewsEventDefinition {
 
 ---
 
-## 21. 모호한 사항 및 추천안
+## 23. 모호한 사항 및 추천안
 
-### 21-1. 직급 상승 비용 미정
+### 직급 상승 비용 미정
 
 - 문제: 규칙에는 직급 상승이 가능하다고 되어 있지만 각 레벨별 비용이 없다.
 - 추천안: 초안 비용을 `10 / 20 / 30 / 40 / 50 / 60`으로 두고, 상점 확률과 함께 밸런싱한다.
 - 결정 필요: 레벨별 확정 비용표.
 
-### 21-2. 상점 슬롯 수 미정
+### 상점 슬롯 수 미정
 
 - 문제: 상점에 매 라운드 몇 장의 카드가 표시되는지 정의되어 있지 않다.
 - 추천안: 기본 상점 슬롯을 5장으로 설정한다. 메인 필드 5칸과 대응되어 학습 비용이 낮다.
 - 결정 필요: 상점 슬롯 수와 직급별 슬롯 증가 여부.
 
-### 21-3. 매 라운드 상점 자동 갱신 여부 미정
+### 매 라운드 상점 자동 갱신 여부 미정
 
 - 문제: 상점에 매 라운드 무작위 카드가 등장한다고 되어 있으나, 구매하지 않은 카드가 라운드마다 자동 교체되는지 명확하지 않다.
 - 추천안: 매 준비 페이즈 시작 시 자동 갱신하고, 준비 페이즈 중에는 자금 2를 내고 수동 갱신하게 한다.
 - 결정 필요: 자동 갱신 시점과 잠금 기능 도입 여부.
 
-### 21-4. 시작 손패/시작 상점 구성 미정
+### 시작 손패/시작 상점 구성 미정
 
 - 문제: 게임 시작 시 손패를 받는지, 첫 상점 카드 수가 몇 장인지 정의되어 있지 않다.
 - 추천안: 시작 손패는 0장, 1라운드 시작 상점 5장으로 시작한다. 구매 후 손패 배치 구조를 명확하게 체험시킬 수 있다.
 - 결정 필요: 시작 손패 지급 여부.
 
-### 21-5. 직급별 상점 확률표 미정
+### 직급별 상점 확률표 미정
 
 - 문제: 직급이 높을수록 고코스트 카드가 등장한다고만 되어 있다.
 - 추천안: 코스트 구간별 가중치 테이블을 별도 `shop-probability-v0.4.md`로 작성한다.
 - 결정 필요: 직급별 코스트 구간 확률.
 
-### 21-6. 피해 계산 반올림 규칙 미정
+### 피해 계산 반올림 규칙 미정
 
 - 문제: 20% 감소, 15% 증가, 10% 반사 등 비율 계산의 소수점 처리 방식이 없다.
 - 추천안: 모든 피해 계산은 단계별 소수점을 유지하고 최종 피해에서 버림 처리한다. 단, 최종 피해가 0보다 크고 1보다 작으면 최소 1로 처리한다.
 - 결정 필요: 버림/반올림/올림 기준.
 
-### 21-7. 반사 피해의 재반사 여부 미정
+### 반사 피해의 재반사 여부 미정
 
 - 문제: 돌풍혁신당과 려시의당의 반사 피해가 다른 반사 효과를 다시 유발하는지 불명확하다.
 - 추천안: 반사 피해는 재반사를 유발하지 않는다. 무한 루프와 과도한 연쇄 피해를 방지한다.
 - 결정 필요: 반사 피해의 트리거 범위.
 
-### 21-8. 무력화 지속 시간 기준 미정
+### 무력화 지속 시간 기준 미정
 
 - 문제: “다음 라운드까지”가 다음 라운드 시작에 해제인지, 다음 라운드 종료까지 유지인지 모호하다.
 - 추천안: 무력화는 적용된 즉시부터 다음 라운드 종료 시까지 유지한다. 즉, 상대가 최소 1회의 전투 페이즈에서 행동 불가 효과를 체감한다.
 - 결정 필요: 상태이상 만료 시점.
 
-### 21-9. 의혹 피해 대상 기준 미정
+### 의혹 피해 대상 기준 미정
 
 - 문제: 의혹 상태가 카드와 플레이어 지지율 모두에 적용 가능한지, 적용 대상별 피해 단위가 명확하지 않다.
 - 추천안: 카드에게 걸린 의혹은 HP 10 피해, 플레이어에게 걸린 의혹은 지지율 10% 피해로 처리한다.
 - 결정 필요: 의혹의 적용 가능 대상과 지지율 피해 단위.
 
-### 21-10. 액티브 스킬 쿨타임 감소 시점 미정
+### 액티브 스킬 쿨타임 감소 시점 미정
 
 - 문제: 쿨타임이 라운드 시작/종료 중 언제 감소하는지 정의되어 있지 않다.
 - 추천안: 라운드 종료 시 감소한다. 다음 라운드 행동 가능 여부를 준비 페이즈 이전에 명확히 표시할 수 있다.
 - 결정 필요: 쿨타임 틱 시점.
 
-### 21-11. 장외 카드의 액티브 행동 가능 여부 미정
+### 장외 카드의 액티브 행동 가능 여부 미정
 
 - 문제: 장외 카드는 일반 공격을 하지 않는다고 되어 있으나 전투 페이즈 액티브 사용 가능 여부가 명확하지 않다.
 - 추천안: 장외 카드는 기본적으로 전투 페이즈 행동권을 사용하지 않고, 라운드 시작 패시브 또는 준비 페이즈 발동형 효과로만 동작한다. 예외는 카드별 텍스트로 명시한다.
 - 결정 필요: 장외 카드 액티브 스킬 체계.
 
-### 21-12. 필드 재정비 범위 미정
+### 필드 재정비 범위 미정
 
 - 문제: 준비 페이즈의 필드 재정비가 위치 변경만 의미하는지, 메인/장외/손패 간 회수까지 가능한지 모호하다.
 - 추천안: 필드 재정비는 같은 영역 내 위치 변경만 허용한다. 필드에서 손패로 되돌리는 기능은 허용하지 않는다.
 - 결정 필요: 재정비 허용 범위.
 
-### 21-13. 동시 탄핵 최종 동률 처리 미정
+### 동시 탄핵 최종 동률 처리 미정
 
 - 문제: 지지율과 필드 총 코스트가 모두 같을 때의 결과가 없다.
 - 추천안: 정식 대전은 무승부, 랭크전은 총 남은 정치 자금이 높은 쪽 승리로 처리한다.
 - 결정 필요: 최종 타이브레이커.
 
-### 21-14. 긴급 속보 이벤트 선택 방식 미정
+### 긴급 속보 이벤트 선택 방식 미정
 
 - 문제: 5라운드마다 어떤 이벤트가 선택되는지 정의되어 있지 않다.
 - 추천안: 전체 이벤트 풀에서 균등 랜덤으로 선택하되, 직전 발동 이벤트는 제외한다.
 - 결정 필요: 랜덤 가중치, 중복 방지, 이벤트 공개 시점.
 
-### 21-15. 공개 정보 범위 미정
+### 공개 정보 범위 미정
 
 - 문제: 상대 구매/배치 카드는 실시간 확인 가능하지만 손패 전체 공개 여부가 명확하지 않다.
 - 추천안: 구매 순간과 배치된 카드는 공개하되, 손패에 보관 중인 카드 목록은 비공개로 한다. 단, 로그에는 “상대가 특정 카드를 구매했다”까지 남는다.
@@ -730,7 +836,51 @@ interface NewsEventDefinition {
 
 ---
 
-## 22. 우선 구현 순서 추천
+## 24. 멀티 에이전트 작업 운영안
+
+### 권장 역할 구성
+
+PM 1명, 개발자 2명, QA 2명의 5인 멀티 에이전트 시스템으로 운영한다. 각 에이전트는 같은 저장소를 기준으로 작업하되, 문서와 코드의 소유 영역을 명확히 나눈다.
+
+| 역할 | 인원 | 주요 책임 | 산출물 |
+| --- | ---: | --- | --- |
+| PM | 1 | 요구사항 정리, 우선순위 결정, 모호한 규칙 승인, 스프린트 범위 관리 | 작업 이슈, 결정 기록, 문서 갱신 요청 |
+| 개발자 A | 1 | Unity/C# 룰 엔진, 상태 모델, 전투/라운드 로직 구현 | C# 코드, 단위 테스트, 구현 문서 갱신 |
+| 개발자 B | 1 | Unity UI, 데이터 에셋, Steam 연동 어댑터, 빌드 파이프라인 구현 | UI/데이터 코드, 통합 테스트, 빌드 문서 |
+| QA A | 1 | 룰 엔진 테스트, 재현 가능한 시뮬레이션, 밸런스 검증 | 테스트 케이스, 버그 리포트, 재현 로그 |
+| QA B | 1 | Steam PC 빌드, UI/UX, 회귀 테스트, 문서-구현 일치 검증 | 체크리스트, 플레이 테스트 리포트, 문서 수정 요청 |
+
+### 작업 흐름
+
+1. PM이 작업 전 관련 규칙과 개발 명세를 확인하고 이슈에 목표/범위/완료 기준을 작성한다.
+2. 개발자 A/B는 작업 시작 전 자신이 수정할 코드와 문서 범위를 선언한다.
+3. QA A/B는 개발 시작 단계에서 테스트 관점의 누락 조건을 이슈에 댓글로 남긴다.
+4. 개발자는 구현과 함께 문서를 갱신하고, 테스트 가능한 최소 단위로 PR을 만든다.
+5. QA는 PR 기준으로 재현 테스트, 회귀 테스트, 문서 일치 검사를 수행한다.
+6. PM은 모호한 규칙의 최종 결정을 승인하고 문서 반영 여부를 확인한다.
+7. 병합 후 다음 작업 시작 전 README, 개발 명세, 테스트 체크리스트가 최신인지 확인한다.
+
+### 작업 분담 예시
+
+| 작업 유형 | PM | 개발자 A | 개발자 B | QA A | QA B |
+| --- | --- | --- | --- | --- | --- |
+| 룰 엔진 | 요구사항 승인 | 주 담당 | UI 연동 지원 | 단위 테스트 | 회귀 확인 |
+| 카드 데이터 | 수치 승인 | 효과 구현 | 데이터 에셋 구성 | 밸런스 테스트 | 표시 검수 |
+| 전투 UI | UX 우선순위 | 상태 이벤트 제공 | 주 담당 | 룰 불일치 확인 | UI/UX 테스트 |
+| Steam 연동 | 출시 요구사항 관리 | 저장 데이터 검증 | 주 담당 | 기능 테스트 | 빌드/플랫폼 테스트 |
+| 밸런스 패치 | 변경 의도 정리 | 계산식 수정 | 데이터 반영 | 시뮬레이션 | 플레이 테스트 |
+
+### 에이전트 간 충돌 방지 규칙
+
+- 한 PR은 가능한 한 하나의 기능 또는 하나의 문서 결정만 포함한다.
+- 동일 파일을 여러 에이전트가 동시에 수정해야 할 경우 PM이 먼저 소유자를 지정한다.
+- 룰 변경은 반드시 개발 명세와 테스트 케이스를 함께 수정한다.
+- QA가 발견한 버그는 “재현 절차 / 기대 결과 / 실제 결과 / 관련 문서” 형식으로 남긴다.
+- 개발자가 문서와 다른 구현을 발견하면 코드보다 문서 결정 여부를 먼저 확인한다.
+
+---
+
+## 25. 우선 구현 순서 추천
 
 1. 순수 룰 엔진과 `GameState` 모델 구현
 2. 게임 초기화, 라운드 진행, 승패 판정 구현
