@@ -5,3 +5,4 @@
 ## 문서
 
 - [한국 정치인 카드게임 규칙 v0.4](docs/rules-v0.4.md)
+- [한국 정치인 카드게임 개발 명세서 v0.4](docs/development-spec-v0.4.md)
